@@ -1,0 +1,108 @@
+name: Fetch The Economist
+
+on:
+  schedule:
+    - cron: '0 0 * * 5'
+  workflow_dispatch:
+    inputs:
+      issue_date:
+        description: 'Issue Date (YYYY-MM-DD) - leave empty for latest'
+        required: false
+        default: ''
+
+jobs:
+  fetch-economist:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      - name: Install Calibre
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libopengl0 libxcb-cursor0 libnss3 \
+            libxcomposite1 libxrandr2 libxtst6 libxkbcommon0 libgbm1 \
+            libfontconfig1 libgl1 libpulse0 libxrender1 libdbus-1-3 \
+            wget libasound2t64
+          
+          url=https://download.calibre-ebook.com/linux-installer.sh
+          sudo -v && wget -nv -O- $url | sudo sh /dev/stdin
+          calibre --version
+      
+      - name: Install Python dependencies
+        shell: bash
+        run: |
+          pip install lxml html5-parser mechanize --quiet
+      
+      - name: List files (debug)
+        shell: bash
+        run: |
+          echo "=== Current directory ==="
+          ls -la
+          echo "=== helper directory ==="
+          ls -la helper/ || echo "No helper dir"
+      
+      - name: Fetch The Economist
+        id: fetch
+        shell: bash
+        run: |
+          if [ ! -f "helper/The Economist.recipe" ]; then
+            echo "❌ Recipe file not found!"
+            exit 1
+          fi
+          
+          cp "helper/The Economist.recipe" .
+          echo "✅ Recipe file ready"
+          
+          DATE="${{ github.event.inputs.issue_date }}"
+          if [ -z "$DATE" ]; then
+            python helper/main.py te
+          else
+            python helper/main.py te "$DATE"
+          fi
+      
+      - name: Upload EPUB
+        uses: actions/upload-artifact@v4
+        with:
+          name: economist-${{ github.run_id }}
+          path: converted_ebooks
+          retention-days: 30
+      
+      - name: Push to repository
+        if: success()
+        shell: bash
+        run: |
+          DATE=$(date +%Y%m%d)
+          
+          if [ ! -d "converted_ebooks" ]; then
+            echo "No output to push"
+            exit 0
+          fi
+          
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          mkdir -p "magzines/the_economist/$DATE"
+          
+          if [ -d "converted_ebooks/$DATE" ]; then
+            cp -r "converted_ebooks/$DATE"/* "magzines/the_economist/$DATE/"
+          elif [ -d "converted_ebooks" ]; then
+            cp -r "converted_ebooks"/* "magzines/the_economist/$DATE/" 2>/dev/null || true
+          fi
+          
+          git add magzines/ || true
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update The Economist - $DATE [skip ci]"
+            git push origin main
+            echo "✅ Pushed to main branch"
+          fi
