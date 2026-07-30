@@ -1,6 +1,6 @@
 # The Economist Fetcher
 
-自动抓取《经济学人》周刊并生成 EPUB 文件。
+自动抓取《经济学人》周刊并生成 EPUB 文件。economist 目前抓取不到文章正文，修复中......
 
 ## 功能
 
